@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# Create Prometheus user
+sudo useradd --no-create-home --shell /bin/false prometheus
+
+# Download Prometheus
+cd /tmp
+wget https://github.com/prometheus/prometheus/releases/download/v2.43.0/prometheus-2.43.0.linux-amd64.tar.gz
+
+# Extract
+tar -xzf prometheus-2.43.0.linux-amd64.tar.gz
+
+# Install Prometheus binaries
+sudo mv prometheus-2.43.0.linux-amd64/prometheus /usr/local/bin/
+sudo mv prometheus-2.43.0.linux-amd64/promtool /usr/local/bin/
+
+# Create directories
+sudo mkdir -p /etc/prometheus
+sudo mkdir -p /var/lib/prometheus
+
+# Copy console files
+sudo cp -r prometheus-2.43.0.linux-amd64/consoles /etc/prometheus/
+sudo cp -r prometheus-2.43.0.linux-amd64/console_libraries /etc/prometheus/
+
+# Create Prometheus configuration
+sudo tee /etc/prometheus/prometheus.yml > /dev/null <<EOF
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'node_exporter'
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['APP_SERVER_1_PRIVATE_IP:9100','APP_SERVER_2_PRIVATE_IP:9100']
+EOF
+
+# Give Prometheus ownership
+sudo chown -R prometheus:prometheus /etc/prometheus
+sudo chown -R prometheus:prometheus /var/lib/prometheus
+
+# Create systemd service
+sudo tee /etc/systemd/system/prometheus.service > /dev/null <<EOF
+[Unit]
+Description=Prometheus Monitoring
+After=network.target
+
+[Service]
+User=prometheus
+Group=prometheus
+Type=simple
+ExecStart=/usr/local/bin/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus/ \
+  --web.console.templates=/etc/prometheus/consoles \
+  --web.console.libraries=/etc/prometheus/console_libraries
+
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Start Prometheus
+sudo systemctl daemon-reload
+sudo systemctl enable prometheus
+sudo systemctl start prometheus
+
+# Check status
+sudo systemctl status prometheus --no-pager
